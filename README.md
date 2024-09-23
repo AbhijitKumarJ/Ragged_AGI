@@ -31,4 +31,28 @@ This is available in litellmmini folder for your R&D
 
 ### 4. OpenAI compatible Ollama wrapper with RAG support:
 
-This just requires adding rag to ollama litellmmini file but is pending till now.
+This is implemented in mini-litellm-ollama.py file which can be run directly as a flask app api like groq one above. Note: this needs further testing.
+
+
+# AIM of this project:
+
+## 1. Server RAG or Model independent knowledge system:
+
+This has many implications:
+
+a. If a separate dedicated endpoint is created for RAG based llm inference, then there is no limit on cut off date or capacity of model. Model's knowledgebase will not be out of date atleast for quite sometime since rag system can be constantly updated.
+
+b. Knowledge rag system can be divided and standardized so that people ca download and use it if required in local environments also.
+
+c. Since it will be centralized, improvement upon the knowledge base as well as far advanced alogoriths and infrastructure can be applied.
+
+d. If required, it can be monetized with a bit higher cost as having a db is far easy and less costly than training a model to perfection on same knowledge.
+
+5. With openai compatible endpoint it can be directly used in tools and extensions like continue, aider and others
+
+## 2. Local RAG scaled openai compatible inference:
+
+Benefits should be obvious:
+a. It can be optimized for personal data across all ai based app running locally.
+b. With openai compatible endpoint it can be directly used in tools and extensions like continue, aider and others
+c. People can add their own variations/improvements.

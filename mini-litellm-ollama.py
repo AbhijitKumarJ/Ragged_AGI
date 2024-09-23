@@ -3,17 +3,45 @@ import time
 import json
 from flask import Flask, request, Response, stream_with_context
 import requests
+from langchain.vectorstores import Chroma
+from langchain.embeddings import HuggingFaceEmbeddings
+from collection_manager import get_all_collections
+from database_utils import get_chroma_db
 
 app = Flask(__name__)
 
 OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'qwen2:1.5b')
+CHROMA_DB_DIR = "chroma_db"
+
+# Chroma DB setup
+embeddings = HuggingFaceEmbeddings()
+
+def get_rag_context(query):
+    contexts = []
+    collections = get_all_collections()
+    for collection in collections:
+        db = get_chroma_db(collection['id'])
+        retriever = db.as_retriever(search_kwargs={"k": 2})
+        docs = retriever.get_relevant_documents(query)
+        contexts.extend([doc.page_content for doc in docs])
+    return "\n\n".join(contexts)
 
 @app.route('/v1/chat/completions', methods=['POST'])
 def chat_completions():
     data = request.json
     messages = data.get('messages', [])
     stream = data.get('stream', False)
+    
+    # Extract the user's query from the messages
+    user_query = next((msg['content'] for msg in messages if msg['role'] == 'user'), "")
+    
+    # Get RAG context
+    rag_context = get_rag_context(user_query)
+    
+    # Add RAG context as a system message
+    system_message = {"role": "system", "content": f"Use the following context to answer the user's question:\n\n{rag_context}"}
+    messages = [system_message] + messages
     
     # Convert OpenAI format to Ollama format
     prompt = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
