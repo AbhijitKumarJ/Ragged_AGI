@@ -1,134 +1,90 @@
-import sqlite3
-import pandas as pd
-import plotly.express as px
-import streamlit as st
+import os
+import json
+from langchain.vectorstores import Chroma
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.chains import RetrievalQA
+from langchain_groq import ChatGroq
 
-# Set up SQLite database
-SQLITE_DB_PATH = "app_data.db"
+CHROMA_DB_DIR = "chroma_db"
 
-@st.cache_resource
-def init_db():
+def create_chroma_db(_documents, collection_name):
     """
-    Initialize the SQLite database and create necessary tables if they don't exist.
+    Create a Chroma database from the given documents.
     """
-    conn = sqlite3.connect(SQLITE_DB_PATH)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS user_actions
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  action_type TEXT,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS indexed_files
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  file_name TEXT,
-                  file_type TEXT,
-                  file_size INTEGER,
-                  indexed_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS queries
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  query_text TEXT,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    conn.commit()
-    conn.close()
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    texts = text_splitter.split_documents(_documents)
 
-def log_user_action(action_type):
-    """
-    Log a user action in the database.
+    embeddings = HuggingFaceEmbeddings()
     
-    Args:
-    action_type (str): The type of action performed by the user.
-    """
-    conn = sqlite3.connect(SQLITE_DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO user_actions (action_type) VALUES (?)", (action_type,))
-    conn.commit()
-    conn.close()
-
-def log_indexed_file(file_name, file_type, file_size):
-    """
-    Log information about an indexed file in the database.
-    
-    Args:
-    file_name (str): Name of the indexed file.
-    file_type (str): Type of the indexed file.
-    file_size (int): Size of the indexed file in bytes.
-    """
-    conn = sqlite3.connect(SQLITE_DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO indexed_files (file_name, file_type, file_size) VALUES (?, ?, ?)",
-              (file_name, file_type, file_size))
-    conn.commit()
-    conn.close()
-
-def log_query(query_text):
-    """
-    Log a user query in the database.
-    
-    Args:
-    query_text (str): The text of the query submitted by the user.
-    """
-    conn = sqlite3.connect(SQLITE_DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO queries (query_text) VALUES (?)", (query_text,))
-    conn.commit()
-    conn.close()
-
-@st.cache_data
-def visualize_user_actions():
-    """
-    Create a visualization of user actions.
-    
-    Returns:
-    plotly.graph_objs._figure.Figure: A bar chart of user actions.
-    """
-    conn = sqlite3.connect(SQLITE_DB_PATH)
-    df = pd.read_sql_query("SELECT action_type, COUNT(*) as count FROM user_actions GROUP BY action_type", conn)
-    conn.close()
-
-    fig = px.bar(df, x='action_type', y='count', title='User Actions')
-    fig.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font_color='#FFFFFF'
+    db = Chroma.from_documents(
+        documents=texts,
+        embedding=embeddings,
+        persist_directory=CHROMA_DB_DIR,
+        collection_name=collection_name
     )
-    return fig
+    db.persist()
+    return db
 
-@st.cache_data
-def visualize_indexed_files():
+def get_chroma_db1():
     """
-    Create a visualization of indexed files.
+    Retrieve a Chroma database for the given collection name.
+    """
+    embeddings = HuggingFaceEmbeddings()
+    chro= Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings, collection_name="collections")
+    print(chro.get())
+
+
+def get_chroma_db(collection_name):
+    """
+    Retrieve a Chroma database for the given collection name.
+    """
+    embeddings = HuggingFaceEmbeddings()
+    return Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings, collection_name=collection_name)
+
+def query_chroma_db(query, collection_name):
+    """
+    Query the Chroma database with the given query.
+    """
+    #get_chroma_db1()
+    db = get_chroma_db(collection_name)
+    retriever = db.as_retriever(search_kwargs={"k": 3})
     
-    Returns:
-    plotly.graph_objs._figure.Figure: A pie chart of indexed files by type.
-    """
-    conn = sqlite3.connect(SQLITE_DB_PATH)
-    df = pd.read_sql_query("SELECT file_type, COUNT(*) as count FROM indexed_files GROUP BY file_type", conn)
-    conn.close()
-
-    fig = px.pie(df, values='count', names='file_type', title='Indexed Files by Type')
-    fig.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font_color='#FFFFFF'
-    )
-    return fig
-
-@st.cache_data
-def visualize_queries():
-    """
-    Create a visualization of the most common queries.
+    llm_client = ChatGroq(temperature=0, api_key=os.environ.get("GROQ_API_KEY"), model_name="llama-3.1-8b-instant")
+    qa_chain = RetrievalQA.from_chain_type(llm=llm_client, chain_type="stuff", retriever=retriever)
     
-    Returns:
-    plotly.graph_objs._figure.Figure: A bar chart of the top 10 most common queries.
-    """
-    conn = sqlite3.connect(SQLITE_DB_PATH)
-    df = pd.read_sql_query("SELECT query_text, COUNT(*) as count FROM queries GROUP BY query_text ORDER BY count DESC LIMIT 10", conn)
-    conn.close()
+    result = qa_chain.run(query)
+    return result
 
-    fig = px.bar(df, x='query_text', y='count', title='Top 10 Most Common Queries')
-    fig.update_xaxes(tickangle=45)
-    fig.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font_color='#FFFFFF'
-    )
-    return fig
+def get_available_collections():
+    """
+    Get a list of available collections in the Chroma database.
+    """
+    collections = []
+    for item in os.listdir(CHROMA_DB_DIR):
+        if os.path.isdir(os.path.join(CHROMA_DB_DIR, item)):
+            collections.append({"id": item, "name": item})
+    return collections
+
+def delete_collection(collection_name):
+    """
+    Delete a collection from the Chroma database.
+    """
+    db = get_chroma_db(collection_name)
+    db.delete_collection()
+
+def export_collection(collection_name):
+    """
+    Export the contents of a collection as a JSON string.
+    """
+    db = get_chroma_db(collection_name)
+    documents = db.get()
+    
+    export_data = []
+    for doc in documents['documents']:
+        export_data.append({
+            'content': doc,
+            'metadata': documents['metadatas'][documents['documents'].index(doc)]
+        })
+    
+    return json.dumps(export_data, indent=2)

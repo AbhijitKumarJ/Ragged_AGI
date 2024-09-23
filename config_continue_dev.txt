@@ -1,0 +1,16 @@
+"models": [
+    {
+      "title": "Ollama",
+      "provider": "ollama",
+      "model": "AUTODETECT"
+    },
+    {
+      "title": "OpenAI-compatible server / API - Custom",
+      "provider": "openai",
+      "model": "MODEL_NAME",
+      "apiKey": "EMPTY",
+      "apiBase": "http://localhost:5000/v1"
+    },
+    ...
+  ],
+  ...
